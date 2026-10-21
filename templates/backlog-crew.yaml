@@ -1,0 +1,64 @@
+# backlog-crew project config
+#
+# Copy this file to the ROOT of the repository you want the crew to work on, named
+# `.backlog-crew.yaml`, and fill it in. The agents read it at the start of every run, so
+# changes take effect on the next run with no redeploy.
+#
+# Everything here is plain English for the agents. Be specific: rules you leave out are rules
+# the agents won't follow.
+
+project:
+  # Required. Shown to every agent.
+  name: My Project
+
+  # What the product does, who uses it, and anything that limits what should be built now
+  # (launch phase, things deliberately out of scope).
+  description: |
+    A web app where small teams track shared expenses. Currently pre-launch: no payments,
+    no mobile app yet.
+
+# Where the product spec lives in this repo (default: docs/product-spec.md). The planner
+# compares it with the code to propose issues. Without it, the planner creates nothing.
+spec: docs/product-spec.md
+
+# Required: at least one area. An area is a part of the repo one developer agent owns.
+# The developer for an area can read the whole repo but only write under its `path`.
+# Use `path: .` for a single-area repo.
+areas:
+  api:
+    # Directory relative to the repo root. Must exist.
+    path: api
+    # One line on what lives here and the stack.
+    description: REST API, Node 22 + Express + PostgreSQL
+    # Command the developer must pass before finishing. Runs inside `path`.
+    # Its first word (here `npm`) becomes an allowed command for the agents.
+    # Leave empty if there is no test command.
+    test: npm test
+    # Conventions the developer must follow and the reviewer will check.
+    rules: |
+      Schema changes go in a new file under migrations/; never edit an existing migration.
+      Every endpoint that acts for a user checks the caller owns the resource.
+
+  web:
+    path: web
+    description: React 18 + TypeScript single-page app
+    test: npx tsc --noEmit
+    rules: |
+      Use the existing components in src/components before writing new ones.
+      All user-facing text goes through src/i18n.
+
+# Optional. Groups of areas that talk to each other. When more than one area in a group
+# changes, an integration-check agent compares both sides of the interface (API paths,
+# field names, types). Remove this section if your areas are independent.
+integration_checks:
+  - [api, web]
+
+# Optional. Extra things the reviewer must check on every change, beyond the area rules.
+review:
+  rules: |
+    No secrets, tokens or personal data in logs.
+
+# Optional planner settings.
+planner:
+  # Most issues the planner may propose per run (default 5).
+  max_issues: 5
