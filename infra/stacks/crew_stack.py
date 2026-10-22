@@ -131,6 +131,8 @@ class BacklogCrewStack(Stack):
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
                 resources=[
                     "arn:aws:bedrock:*::foundation-model/*",
+                    # global.* inference profiles route to models with no region in the ARN
+                    "arn:aws:bedrock:::foundation-model/*",
                     f"arn:aws:bedrock:*:{self.account}:inference-profile/*",
                 ],
             )

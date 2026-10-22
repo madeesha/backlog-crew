@@ -1,7 +1,7 @@
 # Copy into the target repo as .github/workflows/backlog-crew.yml.
 # When a human adds the `agent-ready` label to an issue, start the crew on it.
 #
-# Needs two repository secrets:
+# Needs a repository variable BACKLOG_CREW_AWS_REGION (e.g. ap-southeast-2) and two secrets:
 #   BACKLOG_CREW_AWS_ROLE_ARN  an AWS role trusted for this repo via GitHub OIDC, allowed
 #                              bedrock-agentcore:InvokeAgentRuntime on the runtime
 #   BACKLOG_CREW_RUNTIME_ARN   CDK output BacklogCrew.RuntimeArn
@@ -20,7 +20,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.BACKLOG_CREW_AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ vars.BACKLOG_CREW_AWS_REGION }}
       - name: Invoke orchestrator
         run: |
           aws bedrock-agentcore invoke-agent-runtime \

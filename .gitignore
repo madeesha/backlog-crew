@@ -6,3 +6,6 @@ __pycache__/
 cdk.out/
 .pytest_cache/
 .ruff_cache/
+deploy.env
+cdk-outputs.json
+cdk.context.json

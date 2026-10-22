@@ -3,6 +3,6 @@
   "context": {
     "githubTokenSecret": "backlog-crew/github",
     "allowedRepos": "",
-    "modelId": "anthropic.claude-opus-5-5"
+    "modelId": "global.anthropic.claude-opus-5-5"
   }
 }

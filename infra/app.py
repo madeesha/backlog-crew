@@ -19,7 +19,7 @@ BacklogCrewStack(
     "BacklogCrew",
     github_token_secret_name=app.node.try_get_context("githubTokenSecret") or "backlog-crew/github",
     allowed_repos=allowed_repos,
-    model_id=app.node.try_get_context("modelId") or "anthropic.claude-opus-5-5",
+    model_id=app.node.try_get_context("modelId") or "global.anthropic.claude-opus-5-5",
     env=cdk.Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
         region=os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),

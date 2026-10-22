@@ -35,7 +35,7 @@ def settings() -> Settings:
         aws_region=os.environ.get("AWS_REGION", "us-east-1"),
         # Bedrock model / inference-profile id. Confirm the exact id enabled in your
         # account in the Bedrock console (Model access / Cross-region inference).
-        default_model_id=os.environ.get("MODEL_ID", "anthropic.claude-opus-5-5"),
+        default_model_id=os.environ.get("MODEL_ID", "global.anthropic.claude-opus-5-5"),
         # Comma-separated owner/name list, or "*" for any repo the GitHub token can reach.
         allowed_repos=frozenset(r.strip().lower() for r in allowed.split(",") if r.strip()),
         gateway_url=os.environ.get("GATEWAY_URL", ""),

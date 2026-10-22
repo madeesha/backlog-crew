@@ -43,28 +43,110 @@ Do steps 1–2 once, when you deploy the crew. Do steps 3–7 for every reposito
 
 ### 1. Deploy the crew (once)
 
-You need an AWS account with Bedrock access, the AWS CLI, `uv`, the CDK CLI and Docker.
+**You need:** an AWS account with Bedrock and AgentCore in your region, the AWS CLI v2, `uv`,
+the CDK CLI (`npm i -g aws-cdk`) and Docker.
 
-1. **Enable a model.** In the Bedrock console, enable the Claude model you'll use. Copy its
-   exact model or inference-profile id into `modelId` in `cdk.json`.
-2. **Create a GitHub token.** Create a fine-grained personal access token that can reach the
-   repositories the crew will work on, with **Contents**, **Issues** and **Pull requests** set
-   to read and write. Store it in Secrets Manager:
-   ```bash
-   aws secretsmanager create-secret --name backlog-crew/github \
-     --secret-string '{"token":"github_pat_..."}'
-   ```
-3. **Deploy**, listing the repos the crew may touch:
-   ```bash
-   uv sync --extra infra
-   cdk bootstrap                                   # once per account/region
-   cdk deploy -c allowedRepos=acme/shop,acme/api   # or "*" for any repo the token reaches
-   ```
-   Note the two outputs, `BacklogCrew.RuntimeArn` and `BacklogCrew.GatewayUrl`.
+**a. Log in to AWS.** Use an AWS CLI profile that can create IAM roles, ECR, Secrets
+Manager and AgentCore resources. For SSO profiles:
+
+```bash
+aws sso login --profile <aws-profile>
+aws sts get-caller-identity --profile <aws-profile>   # check it's the account you expect
+```
+
+**b. Fill in your deploy settings.**
+
+```bash
+cp deploy.env.example deploy.env
+```
+
+Set `AWS_PROFILE`, `AWS_REGION` (or leave it empty to use the profile's region),
+`ALLOWED_REPOS` and `MODEL_ID`. `deploy.env` is git-ignored: your account, region and repo
+names stay out of this repo. To see the model ids your region offers:
+
+```bash
+aws bedrock list-inference-profiles --profile <aws-profile> \
+  --query "inferenceProfileSummaries[?contains(inferenceProfileId,'claude')].inferenceProfileId"
+```
+
+Prefer a `global.` or regional (`us.`, `eu.`, `apac.`, `au.`) inference profile over a bare
+model id.
+
+**c. Create the GitHub token** as described in
+[Choosing the crew's GitHub identity](#choosing-the-crews-github-identity), then store it:
+
+```bash
+scripts/put-github-token.sh   # prompts for the token; input is hidden, nothing is saved locally
+```
+
+Run it again whenever you rotate the token. Nothing needs redeploying.
+
+**d. Let Docker build arm64 images** (AgentCore runs linux/arm64). On an Apple Silicon Mac
+this already works. On an x86 machine or WSL, install QEMU emulation once:
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+```
+
+**e. Deploy.**
+
+```bash
+scripts/deploy.sh diff   # optional: preview the changes
+scripts/deploy.sh
+```
+
+The script checks your login, the token secret and Docker. It bootstraps CDK the first time,
+builds and pushes the image, and creates the Gateway, Identity provider and Runtime. The first
+deploy takes 10–20 minutes, mostly the emulated image build. It ends by printing
+`RuntimeArn` and `GatewayUrl`, which are also saved to the git-ignored `cdk-outputs.json`.
+
+Run `scripts/deploy.sh` again after changing code, `deploy.env` or the Dockerfile. To remove
+everything, run `cdk destroy --profile <aws-profile>`. The token secret stays; delete it
+separately if you want.
+
+### Choosing the crew's GitHub identity
+
+GitHub has no "service accounts". The crew needs a token, and whoever owns that token is who
+the commits, PRs and comments appear to come from. Pick one of these:
+
+| Option | Good for | Trade-off |
+|---|---|---|
+| **Fine-grained PAT from your own account** | Getting started on your own repos | PRs show as opened by you, so you can't approve them yourself (matters if you protect `main` with required reviews). |
+| **Machine user** (a second GitHub account, e.g. `yourname-bot`) **+ its PAT** (recommended) | Real use: the bot opens PRs and you review them | One more account to manage. GitHub allows one free machine account per person. |
+| **GitHub App** | Teams and many repos | Not supported yet: App tokens expire every hour, and the Gateway holds a static token. Planned. |
+
+**Setting up a machine user:**
+
+1. Sign out (or use a private window) and create the account, e.g. `yourname-bot`, with its
+   own email. Turn on 2FA.
+2. Give it access to each target repo. For a personal repo, go to **Settings → Collaborators →
+   Add people**, choose **Write**, and accept the invite as the bot. For an organization, add
+   the bot as a member with Write on the repos.
+3. Create its token, signed in as the bot (see below).
+
+**Creating the token** (signed in as whichever account will act):
+
+- **Fine-grained token**: **Settings → Developer settings → Personal access tokens →
+  Fine-grained tokens → Generate new token**.
+  - Resource owner: the account or organization that owns the repos.
+  - Repository access: **Only select repositories**, then pick the target repos.
+  - Repository permissions: **Contents**, **Issues** and **Pull requests** set to
+    *Read and write*. *Metadata: Read* is added automatically. Leave **Workflows** off, so the
+    crew can't change your CI.
+  - Expiration: up to a year. Put a reminder in your calendar to rotate it with
+    `scripts/put-github-token.sh`.
+  - Organizations may need to approve fine-grained tokens first (**Org settings → Personal
+    access tokens**).
+- **Classic token, only if a fine-grained one can't reach the repo.** A fine-grained token
+  only covers repos owned by one resource owner where the account is the owner or an org
+  member. For a bot that is just a *collaborator* on someone else's personal repo, use a
+  classic token with the `repo` scope instead. It's broader, so keep that bot's access to the
+  minimum.
 
 ### 2. Check GitHub is reachable (once)
 
 ```bash
+set -a; source deploy.env; set +a
 GATEWAY_URL=<GatewayUrl> uv run python scripts/list_gateway_tools.py
 ```
 
@@ -73,8 +155,9 @@ You should see a list of `github___...` tools. If you get a 401, see
 
 ### 3. Allow the repository
 
-The repo must be in `allowedRepos` (redeploy with the new list) and reachable by the GitHub
-token.
+Add the repo to `ALLOWED_REPOS` in `deploy.env` and run `scripts/deploy.sh`. Also give the
+GitHub token access to it: add it to the fine-grained token's repository list, or add the bot
+as a collaborator.
 
 ### 4. Describe the project
 
@@ -110,7 +193,8 @@ In the target repo, create the labels **`proposed`** (the planner's suggestions)
 ### 7. Add the trigger
 
 Copy [`examples/agent-ready-trigger.yml`](examples/agent-ready-trigger.yml) to the target repo
-as `.github/workflows/backlog-crew.yml`, and add the two secrets it lists:
+as `.github/workflows/backlog-crew.yml`. Under **Settings → Secrets and variables →
+Actions**, add the variable `BACKLOG_CREW_AWS_REGION` (your region) and two secrets:
 
 - `BACKLOG_CREW_AWS_ROLE_ARN`: an AWS role trusted for this repo via GitHub OIDC, allowed to
   call `bedrock-agentcore:InvokeAgentRuntime` on the runtime.
@@ -128,6 +212,17 @@ as `.github/workflows/backlog-crew.yml`, and add the two secrets it lists:
 You can also start a run by hand: `scripts/invoke.sh run acme/shop 42`.
 
 ---
+
+## Config files
+
+| File | Where | In git? | What it holds |
+|---|---|---|---|
+| `deploy.env` | this repo | **no** (copy from `deploy.env.example`) | AWS profile and region, allowed repos, model id, token secret name |
+| `.env` | this repo | **no** (copy from `.env.example`) | Settings for running the crew locally |
+| `cdk-outputs.json` | this repo | **no** (written by `scripts/deploy.sh`) | `RuntimeArn` and `GatewayUrl` from the last deploy |
+| `cdk.json` | this repo | yes | Generic CDK defaults; overridden by `deploy.env` |
+| `.backlog-crew.yaml` | **each target repo** | yes, in that repo | The project description, areas, rules and spec path (template in `templates/`) |
+| GitHub token | AWS Secrets Manager | never | Written by `scripts/put-github-token.sh` |
 
 ## How it fits together
 
@@ -158,7 +253,7 @@ src/backlog_crew/
 infra/                 CDK (Python): image, Identity provider, Gateway + target, Runtime, IAM
 templates/             backlog-crew.yaml, the project config template
 examples/              GitHub Action for target repos
-scripts/               invoke.sh, run_local.sh, list_gateway_tools.py
+scripts/               deploy.sh, put-github-token.sh, invoke.sh, run_local.sh, list_gateway_tools.py
 ```
 
 ## Development
